@@ -224,7 +224,6 @@ final class ValkeyGlideConnection extends Connection
      */
     public function get(string $key): string|null
     {
-        /** @var string|false $result */
         $result = $this->command('get', [$key]);
 
         return $result !== false ? $result : null;
@@ -238,7 +237,6 @@ final class ValkeyGlideConnection extends Connection
      */
     public function mget(array $keys): array
     {
-        /** @var array<int, string|false> $results */
         $results = $this->command('mget', [$keys]);
 
         return array_map(
