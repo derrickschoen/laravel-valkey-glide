@@ -51,6 +51,110 @@ final class ValkeyGlideConnectionTest extends TestCase
     }
 
     /**
+     * Verify get returns null when the underlying client returns false (cache miss).
+     *
+     * @return void
+     */
+    #[Test]
+    public function getReturnsFalseAsNull(): void
+    {
+        $client = new ValkeyGlideFake;
+        $client->willReturn('get', false);
+
+        $connection = new ValkeyGlideConnection($client);
+
+        self::assertNull($connection->get('missing-key'));
+        self::assertSame([['missing-key']], $client->callsFor('get'));
+    }
+
+    /**
+     * Verify get returns the value when the underlying client returns a string.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getReturnsValueWhenPresent(): void
+    {
+        $client = new ValkeyGlideFake;
+        $client->willReturn('get', 'cached-value');
+
+        $connection = new ValkeyGlideConnection($client);
+
+        self::assertSame('cached-value', $connection->get('existing-key'));
+        self::assertSame([['existing-key']], $client->callsFor('get'));
+    }
+
+    /**
+     * Verify mget converts false entries to null for missing keys.
+     *
+     * @return void
+     */
+    #[Test]
+    public function mgetReturnsFalseAsNull(): void
+    {
+        $client = new ValkeyGlideFake;
+        $client->willReturn('mget', ['value-a', false, 'value-b']);
+
+        $connection = new ValkeyGlideConnection($client);
+
+        self::assertSame(['value-a', null, 'value-b'], $connection->mget(['key-a', 'key-b', 'key-c']));
+        self::assertSame([[['key-a', 'key-b', 'key-c']]], $client->callsFor('mget'));
+    }
+
+    /**
+     * Verify mget returns all values when all keys are present.
+     *
+     * @return void
+     */
+    #[Test]
+    public function mgetReturnsAllValuesWhenPresent(): void
+    {
+        $client = new ValkeyGlideFake;
+        $client->willReturn('mget', ['value-a', 'value-b', 'value-c']);
+
+        $connection = new ValkeyGlideConnection($client);
+
+        self::assertSame(['value-a', 'value-b', 'value-c'], $connection->mget(['key-a', 'key-b', 'key-c']));
+        self::assertSame([[['key-a', 'key-b', 'key-c']]], $client->callsFor('mget'));
+    }
+
+    /**
+     * Verify mget applies the configured prefix to each key in the key list.
+     *
+     * @return void
+     */
+    #[Test]
+    public function mgetPrefixesEveryKeyWhenPrefixConfigured(): void
+    {
+        $client = new ValkeyGlideFake;
+        $client->willReturn('mget', ['value-a', 'value-b']);
+
+        $connection = new ValkeyGlideConnection($client, null, ['prefix' => 'app:']);
+
+        self::assertSame(['value-a', 'value-b'], $connection->mget(['key-a', 'key-b']));
+        self::assertSame([[['app:key-a', 'app:key-b']]], $client->callsFor('mget'));
+    }
+
+    /**
+     * Verify mget throws when the client returns a non-array response payload.
+     *
+     * @return void
+     */
+    #[Test]
+    public function mgetThrowsForUnexpectedTopLevelResponseType(): void
+    {
+        $client = new ValkeyGlideFake;
+        $client->willReturn('mget', $client);
+
+        $connection = new ValkeyGlideConnection($client);
+
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage(sprintf('Expected array response from mget, received [%s].', ValkeyGlideFake::class));
+
+        $connection->mget(['key-a']);
+    }
+
+    /**
      * Verify command execution delegates to the underlying client.
      *
      * @return void
@@ -135,6 +239,92 @@ final class ValkeyGlideConnectionTest extends TestCase
         );
 
         self::assertSame([self::EVAL_TEST_SCRIPT, 2, 'app:k1', 'app:k2', 'arg1'], $normalized_parameters);
+    }
+
+    /**
+     * Verify eval command arguments are executed through rawcommand.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[Test]
+    public function commandRoutesEvalToRawcommand(): void
+    {
+        $client = new ValkeyGlideFake;
+        $client->willReturn('rawcommand', 1);
+
+        $connection = new ValkeyGlideConnection($client, null, ['prefix' => 'app:']);
+
+        self::assertSame(
+            1,
+            $connection->command(
+                'eval',
+                [self::EVAL_TEST_SCRIPT, 1, 'queue-key', 'arg-value'],
+            ),
+        );
+
+        self::assertSame(
+            [
+                ['EVAL', self::EVAL_TEST_SCRIPT, 1, 'app:queue-key', 'arg-value'],
+            ],
+            $client->callsFor('rawcommand'),
+        );
+        self::assertSame([], $client->callsFor('eval'));
+    }
+
+    /**
+     * Verify phpredis-style set options are executed through rawcommand.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[Test]
+    public function commandRoutesLegacySetOptionsToRawcommand(): void
+    {
+        $client = new ValkeyGlideFake;
+        $client->willReturn('rawcommand', 'OK');
+
+        $connection = new ValkeyGlideConnection($client, null, ['prefix' => 'app:']);
+
+        self::assertSame(
+            'OK',
+            $connection->command('set', ['lock-key', 'owner-id', 'EX', 10, 'NX']),
+        );
+
+        self::assertSame(
+            [
+                ['SET', 'app:lock-key', 'owner-id', 'EX', 10, 'NX'],
+            ],
+            $client->callsFor('rawcommand'),
+        );
+        self::assertSame([], $client->callsFor('set'));
+    }
+
+    /**
+     * Verify native set argument shapes continue to use the set method directly.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[Test]
+    public function commandUsesSetMethodForNativeSetArgumentShape(): void
+    {
+        $client = new ValkeyGlideFake;
+        $client->willReturn('set', true);
+
+        $connection = new ValkeyGlideConnection($client, null, ['prefix' => 'app:']);
+
+        self::assertTrue($connection->command('set', ['cache-key', 'value', ['nx']]));
+        self::assertSame(
+            [
+                ['app:cache-key', 'value', ['nx']],
+            ],
+            $client->callsFor('set'),
+        );
+        self::assertSame([], $client->callsFor('rawcommand'));
     }
 
     /**
