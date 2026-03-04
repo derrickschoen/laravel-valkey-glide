@@ -78,8 +78,15 @@ AWS ElastiCache Serverless runs Valkey in cluster mode behind a proxy. `SELECT` 
 By default, database ID `0` is suppressed so no `SELECT` command is sent during the connect handshake. Non-zero database
 IDs (1, 2, ...) are always sent. To opt out, add `'skip_database_zero' => false` to the connection config.
 
-The GLIDE Rust core defaults to a 250ms request timeout which is often too short for ElastiCache Serverless warm-up
-latency. When no `timeout` is configured, the package applies a 3000ms default.
+The GLIDE Rust core defaults to a 250ms request timeout which may be too short for ElastiCache Serverless warm-up
+latency. If needed, set an appropriate `timeout` (in seconds, matching the phpredis convention) in the connection config:
+
+```php
+'default' => [
+    'host'    => env('REDIS_HOST', '127.0.0.1'),
+    'timeout' => 2.0, // seconds — converted to 2000ms for GLIDE
+],
+```
 
 ### TLS Context
 

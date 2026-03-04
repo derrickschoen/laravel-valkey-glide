@@ -12,8 +12,7 @@ Current implementation includes:
 - Connector + connection wiring for Laravel Redis
 - Config normalization from Laravel arrays to GLIDE connect arguments
 - ElastiCache Serverless compatibility: `skip_database_zero` suppresses `SELECT 0` to prevent cluster-mode errors,
-  sensible request timeout default (3000ms) for managed service warm-up latency, phpredis-compatible timeout
-  seconds-to-milliseconds conversion, and TLS stream context passthrough
+  phpredis-compatible timeout seconds-to-milliseconds conversion, and TLS stream context passthrough
 - Connection wrapper behavior for command dispatch, prefixing, safe transient retry, and command-shape compatibility
   fallbacks for Laravel phpredis-style `SET`/`EVAL` usage
 - External integration tests that validate extension-backed behavior against a real Redis/Valkey server, including

@@ -18,9 +18,6 @@ final class Config
     /** @var int Default port value. */
     private const int DEFAULT_PORT = 6379;
 
-    /** @var int Default request timeout in milliseconds. */
-    private const int DEFAULT_REQUEST_TIMEOUT = 3000;
-
     /** @var int Default IAM refresh interval in seconds. */
     private const int DEFAULT_IAM_REFRESH_INTERVAL = 300;
 
@@ -80,8 +77,11 @@ final class Config
             $arguments['client_name'] = $client_name;
         }
 
-        $request_timeout              = self::normalizeTimeout($config['timeout'] ?? null) ?? self::DEFAULT_REQUEST_TIMEOUT;
-        $arguments['request_timeout'] = $request_timeout;
+        $request_timeout = self::normalizeTimeout($config['timeout'] ?? null);
+
+        if ($request_timeout !== null) {
+            $arguments['request_timeout'] = $request_timeout;
+        }
 
         $context = self::normalizeContext($config['context'] ?? null);
 

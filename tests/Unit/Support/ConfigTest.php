@@ -93,7 +93,6 @@ final class ConfigTest extends TestCase
                 'addresses' => [
                     ['host' => self::LOOPBACK_HOST, 'port' => self::DEFAULT_PORT],
                 ],
-                'request_timeout' => 3000,
             ],
             $arguments,
         );
@@ -121,7 +120,6 @@ final class ConfigTest extends TestCase
                     ['host' => 'cache-a', 'port' => 6380],
                     ['host' => self::LOOPBACK_HOST, 'port' => self::DEFAULT_PORT],
                 ],
-                'request_timeout' => 3000,
             ],
             $arguments,
         );
@@ -145,7 +143,6 @@ final class ConfigTest extends TestCase
                 'addresses' => [
                     ['host' => '1234', 'port' => 6380],
                 ],
-                'request_timeout' => 3000,
             ],
             $arguments,
         );
@@ -472,31 +469,31 @@ final class ConfigTest extends TestCase
     }
 
     /**
-     * Verify invalid timeout values fall back to the hardcoded default.
+     * Verify invalid timeout values are excluded from connect arguments.
      *
      * @param  mixed  $value
      * @return void
      */
     #[DataProvider('invalidTimeoutProvider')]
     #[Test]
-    public function connectArgumentsFallsBackToDefaultTimeoutForInvalidValues(mixed $value): void
+    public function connectArgumentsExcludesInvalidTimeoutValues(mixed $value): void
     {
         $arguments = Config::connectArguments(['timeout' => $value]);
 
-        self::assertSame(3000, $arguments['request_timeout']);
+        self::assertArrayNotHasKey('request_timeout', $arguments);
     }
 
     /**
-     * Verify hardcoded default timeout is applied when no timeout is configured.
+     * Verify request timeout is excluded when no timeout is configured.
      *
      * @return void
      */
     #[Test]
-    public function connectArgumentsAppliesDefaultTimeoutWhenNoneConfigured(): void
+    public function connectArgumentsExcludesRequestTimeoutWhenNoneConfigured(): void
     {
         $arguments = Config::connectArguments([]);
 
-        self::assertSame(3000, $arguments['request_timeout']);
+        self::assertArrayNotHasKey('request_timeout', $arguments);
     }
 
     /**
