@@ -18,6 +18,9 @@ final class Config
     /** @var int Default port value. */
     private const int DEFAULT_PORT = 6379;
 
+    /** @var int Default request timeout in milliseconds. */
+    private const int DEFAULT_REQUEST_TIMEOUT = 3000;
+
     /** @var int Default IAM refresh interval in seconds. */
     private const int DEFAULT_IAM_REFRESH_INTERVAL = 300;
 
@@ -64,7 +67,8 @@ final class Config
             $arguments['credentials'] = $credentials;
         }
 
-        $database_id = self::databaseId($config['database'] ?? null);
+        $skip_zero   = (bool) ($config['skip_database_zero'] ?? true);
+        $database_id = self::databaseId($config['database'] ?? null, $skip_zero);
 
         if ($database_id !== null) {
             $arguments['database_id'] = $database_id;
@@ -74,6 +78,15 @@ final class Config
 
         if ($client_name !== null) {
             $arguments['client_name'] = $client_name;
+        }
+
+        $request_timeout              = self::normalizeTimeout($config['timeout'] ?? null) ?? self::DEFAULT_REQUEST_TIMEOUT;
+        $arguments['request_timeout'] = $request_timeout;
+
+        $context = self::normalizeContext($config['context'] ?? null);
+
+        if ($context !== null) {
+            $arguments['context'] = $context;
         }
 
         return $arguments;
@@ -245,6 +258,56 @@ final class Config
     }
 
     /**
+     * Normalize a timeout value from seconds to milliseconds.
+     *
+     * The phpredis convention is to express timeouts as floats in seconds.
+     * Valkey GLIDE's request_timeout expects milliseconds. This method
+     * accepts the phpredis-style seconds value and converts it.
+     *
+     * @param  mixed  $value
+     * @return int|null
+     */
+    private static function normalizeTimeout(mixed $value): ?int
+    {
+        if ($value === null || $value === '' || is_bool($value)) {
+            return null;
+        }
+
+        $seconds = filter_var($value, FILTER_VALIDATE_FLOAT);
+
+        if ($seconds === false || $seconds <= 0) {
+            return null;
+        }
+
+        $milliseconds = (int) round($seconds * 1000);
+
+        return $milliseconds > 0 ? $milliseconds : null;
+    }
+
+    /**
+     * Normalize a TLS stream context value.
+     *
+     * Accepts both arrays (config-file-safe, preferred) and pre-built
+     * stream context resources. The ValkeyGlide extension accepts both
+     * formats via its connect() context parameter.
+     *
+     * @param  mixed  $value
+     * @return array<array-key, mixed>|resource|null
+     */
+    private static function normalizeContext(mixed $value): mixed
+    {
+        if (is_array($value) && $value !== []) {
+            return $value;
+        }
+
+        if (is_resource($value)) {
+            return $value;
+        }
+
+        return null;
+    }
+
+    /**
      * Normalize a host and port pair.
      *
      * @param  array<string, mixed>  $address
@@ -303,14 +366,30 @@ final class Config
     }
 
     /**
-     * Normalize a mixed database id into a non-negative integer.
+     * Normalize a mixed database id into a positive integer.
+     *
+     * When skip_zero is enabled (the default), database 0 is treated as
+     * null so that no SELECT command is sent during connect. SELECT 0 is
+     * a no-op on standalone Redis and causes errors on cluster-mode
+     * endpoints like AWS ElastiCache Serverless.
      *
      * @param  mixed  $value
+     * @param  bool  $skip_zero
      * @return int|null
      */
-    private static function databaseId(mixed $value): ?int
+    private static function databaseId(mixed $value, bool $skip_zero = true): ?int
     {
-        return self::normalizeNonNegativeInt($value);
+        $normalized = self::normalizeNonNegativeInt($value);
+
+        if ($normalized === null) {
+            return null;
+        }
+
+        if ($skip_zero && $normalized === 0) {
+            return null;
+        }
+
+        return $normalized;
     }
 
     /**

@@ -93,6 +93,7 @@ final class ConfigTest extends TestCase
                 'addresses' => [
                     ['host' => self::LOOPBACK_HOST, 'port' => self::DEFAULT_PORT],
                 ],
+                'request_timeout' => 3000,
             ],
             $arguments,
         );
@@ -120,6 +121,7 @@ final class ConfigTest extends TestCase
                     ['host' => 'cache-a', 'port' => 6380],
                     ['host' => self::LOOPBACK_HOST, 'port' => self::DEFAULT_PORT],
                 ],
+                'request_timeout' => 3000,
             ],
             $arguments,
         );
@@ -143,6 +145,7 @@ final class ConfigTest extends TestCase
                 'addresses' => [
                     ['host' => '1234', 'port' => 6380],
                 ],
+                'request_timeout' => 3000,
             ],
             $arguments,
         );
@@ -367,5 +370,190 @@ final class ConfigTest extends TestCase
         );
         self::assertSame(['password' => 'secret'], $arguments['credentials']);
         self::assertSame(2, $arguments['database_id']);
+    }
+
+    /**
+     * Verify database ID zero is excluded by default to prevent SELECT 0.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsExcludesDatabaseIdZeroByDefault(): void
+    {
+        $arguments = Config::connectArguments(['database' => 0]);
+
+        self::assertArrayNotHasKey('database_id', $arguments);
+    }
+
+    /**
+     * Verify database ID string zero is excluded by default.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsExcludesDatabaseIdStringZeroByDefault(): void
+    {
+        $arguments = Config::connectArguments(['database' => '0']);
+
+        self::assertArrayNotHasKey('database_id', $arguments);
+    }
+
+    /**
+     * Verify database ID zero is included when skip_database_zero is disabled.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsIncludesDatabaseIdZeroWhenSkipDisabled(): void
+    {
+        $arguments = Config::connectArguments([
+            'database'           => 0,
+            'skip_database_zero' => false,
+        ]);
+
+        self::assertSame(0, $arguments['database_id']);
+    }
+
+    /**
+     * Verify non-zero database IDs are included regardless of skip setting.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsStillIncludesNonZeroDatabaseIds(): void
+    {
+        $arguments = Config::connectArguments(['database' => 3]);
+
+        self::assertSame(3, $arguments['database_id']);
+    }
+
+    /**
+     * Provide valid timeout values in seconds with expected millisecond results.
+     *
+     * @return iterable<string, array{0: mixed, 1: int}>
+     */
+    public static function validTimeoutProvider(): iterable
+    {
+        yield 'float seconds' => [2.0, 2000];
+        yield 'string seconds' => ['2.5', 2500];
+        yield 'integer seconds' => [5, 5000];
+        yield 'sub-second' => [0.5, 500];
+    }
+
+    /**
+     * Verify timeout values in seconds are converted to milliseconds.
+     *
+     * @param  mixed  $input
+     * @param  int  $expected
+     * @return void
+     */
+    #[DataProvider('validTimeoutProvider')]
+    #[Test]
+    public function connectArgumentsConvertsTimeoutFromSecondsToMilliseconds(mixed $input, int $expected): void
+    {
+        $arguments = Config::connectArguments(['timeout' => $input]);
+
+        self::assertSame($expected, $arguments['request_timeout']);
+    }
+
+    /**
+     * Provide invalid timeout values that should be excluded.
+     *
+     * @return iterable<string, array{0: mixed}>
+     */
+    public static function invalidTimeoutProvider(): iterable
+    {
+        yield 'zero' => [0];
+        yield 'negative' => [-1];
+        yield 'null' => [null];
+        yield 'string' => ['abc'];
+        yield 'boolean true' => [true];
+        yield 'sub-millisecond' => [0.0004];
+    }
+
+    /**
+     * Verify invalid timeout values fall back to the hardcoded default.
+     *
+     * @param  mixed  $value
+     * @return void
+     */
+    #[DataProvider('invalidTimeoutProvider')]
+    #[Test]
+    public function connectArgumentsFallsBackToDefaultTimeoutForInvalidValues(mixed $value): void
+    {
+        $arguments = Config::connectArguments(['timeout' => $value]);
+
+        self::assertSame(3000, $arguments['request_timeout']);
+    }
+
+    /**
+     * Verify hardcoded default timeout is applied when no timeout is configured.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsAppliesDefaultTimeoutWhenNoneConfigured(): void
+    {
+        $arguments = Config::connectArguments([]);
+
+        self::assertSame(3000, $arguments['request_timeout']);
+    }
+
+    /**
+     * Verify array context values are included for TLS configuration.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsIncludesArrayContext(): void
+    {
+        $ssl_options = ['ssl' => ['cafile' => '/path/to/ca.crt', 'verify_peer' => true]];
+
+        $arguments = Config::connectArguments(['context' => $ssl_options]);
+
+        self::assertSame($ssl_options, $arguments['context']);
+    }
+
+    /**
+     * Verify resource context values are included for TLS configuration.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsIncludesResourceContext(): void
+    {
+        $context = stream_context_create(['ssl' => ['cafile' => '/path/to/ca.crt']]);
+
+        $arguments = Config::connectArguments(['context' => $context]);
+
+        self::assertSame($context, $arguments['context']);
+    }
+
+    /**
+     * Provide non-context values that should be excluded.
+     *
+     * @return iterable<string, array{0: mixed}>
+     */
+    public static function nonContextProvider(): iterable
+    {
+        yield 'null' => [null];
+        yield 'string' => ['not-a-context'];
+        yield 'integer' => [123];
+        yield 'empty array' => [[]];
+    }
+
+    /**
+     * Verify non-context values are excluded from connect arguments.
+     *
+     * @param  mixed  $value
+     * @return void
+     */
+    #[DataProvider('nonContextProvider')]
+    #[Test]
+    public function connectArgumentsExcludesNonContextValues(mixed $value): void
+    {
+        $arguments = Config::connectArguments(['context' => $value]);
+
+        self::assertArrayNotHasKey('context', $arguments);
     }
 }

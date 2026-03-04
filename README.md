@@ -70,6 +70,37 @@ Example single-node Redis connection:
 ],
 ```
 
+## ElastiCache Serverless Compatibility
+
+AWS ElastiCache Serverless runs Valkey in cluster mode behind a proxy. `SELECT` is rejected with
+`ERR SELECT is not allowed in cluster mode`, even though the endpoint appears as a single node.
+
+By default, database ID `0` is suppressed so no `SELECT` command is sent during the connect handshake. Non-zero database
+IDs (1, 2, ...) are always sent. To opt out, add `'skip_database_zero' => false` to the connection config.
+
+The GLIDE Rust core defaults to a 250ms request timeout which is often too short for ElastiCache Serverless warm-up
+latency. When no `timeout` is configured, the package applies a 3000ms default.
+
+### TLS Context
+
+Pass a TLS stream context for custom CA certificates or verification settings via the per-connection `context` key:
+
+```php
+'default' => [
+    'host'    => env('REDIS_HOST', '127.0.0.1'),
+    'port'    => (int) env('REDIS_PORT', 6379),
+    'tls'     => true,
+    'context' => [
+        'ssl' => [
+            'cafile'      => '/path/to/ca.crt',
+            'verify_peer' => true,
+        ],
+    ],
+],
+```
+
+Both array contexts (config-file-safe) and pre-built `stream_context_create()` resources are accepted.
+
 ## Supported Config Mapping
 
 The connector normalizes Laravel config into GLIDE connect arguments:
@@ -79,8 +110,10 @@ The connector normalizes Laravel config into GLIDE connect arguments:
 - `tls` or `scheme=tls` -> `use_tls=true`
 - `username` + `password` -> ACL credentials
 - `iam` block -> IAM credentials + `use_tls=true`
-- `database` -> `database_id`
+- `database` -> `database_id` (suppressed for `0` by default; opt out with `skip_database_zero => false`)
 - `name` -> `client_name`
+- `timeout` -> `request_timeout` (seconds auto-converted to milliseconds, matching the phpredis convention)
+- `context` -> `context` (TLS stream context array or resource)
 
 Cluster-style configs are normalized into seed `addresses` using `connectToCluster()`.
 
