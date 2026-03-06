@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Valkey\Support\Config;
+use SineMacula\Valkey\Support\ReadFrom;
 
 /**
  * Config test case.
@@ -19,6 +20,7 @@ use SineMacula\Valkey\Support\Config;
  * @internal
  */
 #[CoversClass(Config::class)]
+#[CoversClass(ReadFrom::class)]
 final class ConfigTest extends TestCase
 {
     /** @var string Loopback host used in expected normalized addresses. */
@@ -552,5 +554,111 @@ final class ConfigTest extends TestCase
         $arguments = Config::connectArguments(['context' => $value]);
 
         self::assertArrayNotHasKey('context', $arguments);
+    }
+
+    /**
+     * Verify read_from is resolved and included when configured.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsIncludesReadFromWhenConfigured(): void
+    {
+        $arguments = Config::connectArguments(['read_from' => 'prefer_replica']);
+
+        self::assertSame(1, $arguments['read_from']);
+    }
+
+    /**
+     * Verify read_from zero (Primary) is preserved and not dropped by falsy check.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsIncludesReadFromZero(): void
+    {
+        $arguments = Config::connectArguments(['read_from' => 0]);
+
+        self::assertSame(0, $arguments['read_from']);
+    }
+
+    /**
+     * Verify read_from is excluded when not configured.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsExcludesReadFromWhenNotConfigured(): void
+    {
+        $arguments = Config::connectArguments([]);
+
+        self::assertArrayNotHasKey('read_from', $arguments);
+    }
+
+    /**
+     * Verify client_az is included when a valid string is configured.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsIncludesClientAzWhenValid(): void
+    {
+        $arguments = Config::connectArguments(['client_az' => '  use1-az1  ']);
+
+        self::assertSame('use1-az1', $arguments['client_az']);
+    }
+
+    /**
+     * Provide invalid client_az values that should be excluded.
+     *
+     * @return iterable<string, array{0: mixed}>
+     */
+    public static function invalidClientAzProvider(): iterable
+    {
+        yield 'null' => [null];
+        yield 'empty string' => [''];
+        yield 'whitespace only' => ['   '];
+        yield 'boolean true' => [true];
+        yield 'boolean false' => [false];
+        yield 'integer' => [123];
+        yield 'float' => [1.5];
+    }
+
+    /**
+     * Verify invalid client_az values are excluded from connect arguments.
+     *
+     * @param  mixed  $value
+     * @return void
+     */
+    #[DataProvider('invalidClientAzProvider')]
+    #[Test]
+    public function connectArgumentsExcludesInvalidClientAzValues(mixed $value): void
+    {
+        $arguments = Config::connectArguments(['client_az' => $value]);
+
+        self::assertArrayNotHasKey('client_az', $arguments);
+    }
+
+    /**
+     * Verify nested options override top-level read_from and client_az values.
+     *
+     * @return void
+     */
+    #[Test]
+    public function mergePreservesReadFromAndClientAzFromNestedOptions(): void
+    {
+        $merged = Config::merge(
+            [
+                'read_from' => 'primary',
+                'client_az' => 'old-az',
+                'options'   => [
+                    'read_from' => 'prefer_replica',
+                    'client_az' => 'use1-az1',
+                ],
+            ],
+        );
+
+        self::assertSame('prefer_replica', $merged['read_from']);
+        self::assertSame('use1-az1', $merged['client_az']);
     }
 }
