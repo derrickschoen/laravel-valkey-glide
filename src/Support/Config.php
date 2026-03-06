@@ -95,6 +95,18 @@ final class Config
             $arguments['advanced_config'] = $advanced_config;
         }
 
+        $read_from = ReadFrom::tryFromMixed($config['read_from'] ?? null);
+
+        if ($read_from !== null) {
+            $arguments['read_from'] = $read_from->value;
+        }
+
+        $client_az = self::normalizeClientAz($config['client_az'] ?? null);
+
+        if ($client_az !== null) {
+            $arguments['client_az'] = $client_az;
+        }
+
         return $arguments;
     }
 
@@ -335,6 +347,27 @@ final class Config
         }
 
         return $advanced !== [] ? $advanced : null;
+    }
+
+    /**
+     * Normalize a client AZ identifier.
+     *
+     * Accepts only string values. Unlike clientName(), no scalar
+     * coercion is performed because AZ identifiers are always
+     * literal strings from config or environment variables.
+     *
+     * @param  mixed  $value
+     * @return string|null
+     */
+    private static function normalizeClientAz(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+
+        return $trimmed !== '' ? $trimmed : null;
     }
 
     /**

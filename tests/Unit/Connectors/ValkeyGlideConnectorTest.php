@@ -239,6 +239,95 @@ final class ValkeyGlideConnectorTest extends TestCase
     }
 
     /**
+     * Verify read_from and client_az are passed through to the GLIDE client.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectPassesReadFromAndClientAzToGlideClient(): void
+    {
+        $fake = new ValkeyGlideFake;
+
+        $connector = new ValkeyGlideConnector(
+            clientFactory  : static fn (): \ValkeyGlide => $fake,
+            extensionLoader: static fn (string $extension): bool => true,
+            classResolver  : static fn (string $class): bool => true,
+        );
+
+        $connector->connect(
+            [
+                'read_from' => 'prefer_replica',
+                'client_az' => 'use1-az1',
+            ],
+            [],
+        );
+
+        $connect_calls = $fake->callsFor('connect');
+
+        self::assertCount(1, $connect_calls);
+        self::assertSame(1, $connect_calls[0]['read_from']);
+        self::assertSame('use1-az1', $connect_calls[0]['client_az']);
+    }
+
+    /**
+     * Verify read_from zero (Primary) is not dropped by a falsy check.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectPassesReadFromZeroToGlideClient(): void
+    {
+        $fake = new ValkeyGlideFake;
+
+        $connector = new ValkeyGlideConnector(
+            clientFactory  : static fn (): \ValkeyGlide => $fake,
+            extensionLoader: static fn (string $extension): bool => true,
+            classResolver  : static fn (string $class): bool => true,
+        );
+
+        $connector->connect(['read_from' => 0], []);
+
+        $connect_calls = $fake->callsFor('connect');
+
+        self::assertCount(1, $connect_calls);
+        self::assertSame(0, $connect_calls[0]['read_from']);
+    }
+
+    /**
+     * Verify cluster config passes read_from and client_az through to GLIDE.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectToClusterPassesReadFromAndClientAzToGlideClient(): void
+    {
+        $fake = new ValkeyGlideFake;
+
+        $connector = new ValkeyGlideConnector(
+            clientFactory  : static fn (): \ValkeyGlide => $fake,
+            extensionLoader: static fn (string $extension): bool => true,
+            classResolver  : static fn (string $class): bool => true,
+        );
+
+        $connector->connectToCluster(
+            [
+                ['host' => 'node-1', 'port' => 6380],
+            ],
+            [],
+            [
+                'read_from' => 'az_affinity',
+                'client_az' => 'use1-az2',
+            ],
+        );
+
+        $connect_calls = $fake->callsFor('connect');
+
+        self::assertCount(1, $connect_calls);
+        self::assertSame(2, $connect_calls[0]['read_from']);
+        self::assertSame('use1-az2', $connect_calls[0]['client_az']);
+    }
+
+    /**
      * Verify cluster connection handles configs without array seed nodes.
      *
      * @return void
