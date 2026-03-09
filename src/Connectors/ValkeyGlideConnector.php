@@ -106,7 +106,9 @@ final class ValkeyGlideConnector implements ConnectorContract
         $client         = $client_factory();
 
         try {
-            $client->connect(...Config::connectArguments($config));
+            $args = Config::connectArguments($config);
+            \Illuminate\Support\Facades\Log::debug('[glide-debug] connect args', $args);
+            $client->connect(...$args);
         } catch (ConnectionException $exception) {
             throw $exception;
         } catch (\Throwable $exception) {
