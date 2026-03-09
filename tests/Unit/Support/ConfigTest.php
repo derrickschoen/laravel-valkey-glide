@@ -435,6 +435,8 @@ final class ConfigTest extends TestCase
         yield 'string seconds' => ['2.5', 2500];
         yield 'integer seconds' => [5, 5000];
         yield 'sub-second' => [0.5, 500];
+        yield 'milliseconds passthrough' => [2000, 2000];
+        yield 'string milliseconds' => ['3000', 3000];
     }
 
     /**
@@ -552,5 +554,83 @@ final class ConfigTest extends TestCase
         $arguments = Config::connectArguments(['context' => $value]);
 
         self::assertArrayNotHasKey('context', $arguments);
+    }
+
+    /**
+     * Verify connection timeout is included in advanced config.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsIncludesConnectionTimeoutInAdvancedConfig(): void
+    {
+        $arguments = Config::connectArguments(['connection_timeout' => 2000]);
+
+        self::assertSame(['connection_timeout' => 2000], $arguments['advanced_config']);
+    }
+
+    /**
+     * Verify connection timeout auto-detects seconds and converts to milliseconds.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsAutoDetectsConnectionTimeoutSeconds(): void
+    {
+        $arguments = Config::connectArguments(['connection_timeout' => 2.0]);
+
+        self::assertSame(['connection_timeout' => 2000], $arguments['advanced_config']);
+    }
+
+    /**
+     * Verify advanced config is excluded when no connection timeout is set.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsExcludesAdvancedConfigWhenNoConnectionTimeout(): void
+    {
+        $arguments = Config::connectArguments([]);
+
+        self::assertArrayNotHasKey('advanced_config', $arguments);
+    }
+
+    /**
+     * Verify zero connection timeout is excluded.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsExcludesZeroConnectionTimeout(): void
+    {
+        $arguments = Config::connectArguments(['connection_timeout' => 0]);
+
+        self::assertArrayNotHasKey('advanced_config', $arguments);
+    }
+
+    /**
+     * Verify negative connection timeout is excluded.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsExcludesNegativeConnectionTimeout(): void
+    {
+        $arguments = Config::connectArguments(['connection_timeout' => -1]);
+
+        self::assertArrayNotHasKey('advanced_config', $arguments);
+    }
+
+    /**
+     * Verify non-numeric connection timeout is excluded.
+     *
+     * @return void
+     */
+    #[Test]
+    public function connectArgumentsExcludesNonNumericConnectionTimeout(): void
+    {
+        $arguments = Config::connectArguments(['connection_timeout' => 'abc']);
+
+        self::assertArrayNotHasKey('advanced_config', $arguments);
     }
 }

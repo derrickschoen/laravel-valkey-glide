@@ -89,6 +89,12 @@ final class Config
             $arguments['context'] = $context;
         }
 
+        $advanced_config = self::advancedConfig($config);
+
+        if ($advanced_config !== null) {
+            $arguments['advanced_config'] = $advanced_config;
+        }
+
         return $arguments;
     }
 
@@ -273,13 +279,16 @@ final class Config
             return null;
         }
 
-        $seconds = filter_var($value, FILTER_VALIDATE_FLOAT);
+        $numeric = filter_var($value, FILTER_VALIDATE_FLOAT);
 
-        if ($seconds === false || $seconds <= 0) {
+        if ($numeric === false || $numeric <= 0) {
             return null;
         }
 
-        $milliseconds = (int) round($seconds * 1000);
+        // Auto-detect: values < 10 are seconds (phpredis convention), >= 10 are milliseconds
+        $milliseconds = $numeric < 10
+            ? (int) round($numeric * 1000)
+            : (int) round($numeric);
 
         return $milliseconds > 0 ? $milliseconds : null;
     }
@@ -305,6 +314,27 @@ final class Config
         }
 
         return null;
+    }
+
+    /**
+     * Build the advanced configuration array for GLIDE.
+     *
+     * Currently supports connection_timeout (in milliseconds).
+     *
+     * @param  array<string, mixed>  $config
+     * @return array<string, mixed>|null
+     */
+    private static function advancedConfig(array $config): ?array
+    {
+        $advanced = [];
+
+        $connection_timeout = self::normalizeTimeout($config['connection_timeout'] ?? null);
+
+        if ($connection_timeout !== null) {
+            $advanced['connection_timeout'] = $connection_timeout;
+        }
+
+        return $advanced !== [] ? $advanced : null;
     }
 
     /**
