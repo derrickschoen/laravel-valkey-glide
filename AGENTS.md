@@ -11,6 +11,9 @@ Current implementation includes:
 - Service provider registration for the `valkey-glide` Redis client
 - Connector + connection wiring for Laravel Redis
 - Config normalization from Laravel arrays to GLIDE connect arguments
+- ElastiCache Serverless compatibility: `elasticache_serverless` flag applies sensible defaults (null database, TLS,
+  timeout minimums, dual addresses, PreferReplica read routing), phpredis-compatible timeout seconds-to-milliseconds
+  conversion, TLS stream context passthrough, and `read_from` / `client_az` config passthrough for GLIDE read routing
 - Connection wrapper behavior for command dispatch, prefixing, safe transient retry, and command-shape compatibility
   fallbacks for Laravel phpredis-style `SET`/`EVAL` usage
 - External integration tests that validate extension-backed behavior against a real Redis/Valkey server, including
@@ -34,7 +37,9 @@ The package currently centers around:
 
 - Service provider registration for a custom Laravel Redis client (`valkey-glide`)
 - Laravel Redis connector and connection wiring for Valkey GLIDE
-- Configuration mapping from Laravel Redis arrays to Valkey GLIDE connection options
+- Configuration mapping from Laravel Redis arrays to Valkey GLIDE connection options, including phpredis-compatible
+  timeout conversion, ElastiCache Serverless convenience flag, TLS context passthrough, client name, and `read_from` /
+  `client_az` passthrough for read routing
 - Compatibility behavior in the connection wrapper (command dispatch, events, key prefix handling, phpredis-style
   command-shape fallback for `SET`/`EVAL`)
 - Safe retry-once behavior for idempotent commands on transient transport failures

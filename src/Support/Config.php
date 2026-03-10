@@ -50,6 +50,10 @@ final class Config
      */
     public static function connectArguments(array $config): array
     {
+        if (self::isElastiCacheServerless($config)) {
+            $config = self::applyElastiCacheServerlessDefaults($config);
+        }
+
         $arguments = [
             'addresses' => self::addresses($config),
         ];
@@ -74,6 +78,36 @@ final class Config
 
         if ($client_name !== null) {
             $arguments['client_name'] = $client_name;
+        }
+
+        $request_timeout = self::normalizeTimeout($config['timeout'] ?? null);
+
+        if ($request_timeout !== null) {
+            $arguments['request_timeout'] = $request_timeout;
+        }
+
+        $context = self::normalizeContext($config['context'] ?? null);
+
+        if ($context !== null) {
+            $arguments['context'] = $context;
+        }
+
+        $advanced_config = self::advancedConfig($config);
+
+        if ($advanced_config !== null) {
+            $arguments['advanced_config'] = $advanced_config;
+        }
+
+        $read_from = ReadFrom::tryFromMixed($config['read_from'] ?? null);
+
+        if ($read_from !== null) {
+            $arguments['read_from'] = $read_from->value;
+        }
+
+        $client_az = self::normalizeClientAz($config['client_az'] ?? null);
+
+        if ($client_az !== null) {
+            $arguments['client_az'] = $client_az;
         }
 
         return $arguments;
@@ -242,6 +276,208 @@ final class Config
                 'refreshIntervalSeconds' => $refresh_interval,
             ],
         ];
+    }
+
+    /**
+     * Normalize a timeout value from seconds to milliseconds.
+     *
+     * The phpredis convention is to express timeouts as floats in seconds.
+     * Valkey GLIDE's request_timeout expects milliseconds. This method
+     * accepts the phpredis-style seconds value and converts it.
+     *
+     * @param  mixed  $value
+     * @return int|null
+     */
+    private static function normalizeTimeout(mixed $value): ?int
+    {
+        if ($value === null || $value === '' || is_bool($value)) {
+            return null;
+        }
+
+        $numeric = filter_var($value, FILTER_VALIDATE_FLOAT);
+
+        if ($numeric === false || $numeric <= 0) {
+            return null;
+        }
+
+        // Auto-detect: values < 1000 are seconds (phpredis convention), >= 1000 are milliseconds
+        $milliseconds = $numeric < 1000
+            ? (int) round($numeric * 1000)
+            : (int) round($numeric);
+
+        return $milliseconds > 0 ? $milliseconds : null;
+    }
+
+    /**
+     * Normalize a TLS stream context value.
+     *
+     * Accepts both arrays (config-file-safe, preferred) and pre-built
+     * stream context resources. The ValkeyGlide extension accepts both
+     * formats via its connect() context parameter.
+     *
+     * @param  mixed  $value
+     * @return array<array-key, mixed>|resource|null
+     */
+    private static function normalizeContext(mixed $value): mixed
+    {
+        if (is_array($value) && $value !== []) {
+            return $value;
+        }
+
+        if (is_resource($value)) {
+            return $value;
+        }
+
+        return null;
+    }
+
+    /**
+     * Build the advanced configuration array for GLIDE.
+     *
+     * Currently supports connection_timeout (in milliseconds).
+     *
+     * @param  array<string, mixed>  $config
+     * @return array<string, mixed>|null
+     */
+    private static function advancedConfig(array $config): ?array
+    {
+        $advanced = [];
+
+        $connection_timeout = self::normalizeTimeout($config['connection_timeout'] ?? null);
+
+        if ($connection_timeout !== null) {
+            $advanced['connection_timeout'] = $connection_timeout;
+        }
+
+        return $advanced !== [] ? $advanced : null;
+    }
+
+    /**
+     * Normalize a client AZ identifier.
+     *
+     * Accepts only string values. Unlike clientName(), no scalar
+     * coercion is performed because AZ identifiers are always
+     * literal strings from config or environment variables.
+     *
+     * @param  mixed  $value
+     * @return string|null
+     */
+    private static function normalizeClientAz(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+
+        return $trimmed !== '' ? $trimmed : null;
+    }
+
+    /** @var string Pattern matching ElastiCache Serverless hostnames. */
+    private const string ELASTICACHE_SERVERLESS_PATTERN = '/\.serverless\..*\.cache\.amazonaws\.com$/i';
+
+    /**
+     * Determine whether ElastiCache Serverless mode should be applied.
+     *
+     * Enabled explicitly via the `elasticache_serverless` config flag, or
+     * auto-detected when the `host` or `url` matches the ElastiCache
+     * Serverless hostname pattern.
+     *
+     * @param  array<string, mixed>  $config
+     * @return bool
+     */
+    private static function isElastiCacheServerless(array $config): bool
+    {
+        if ((bool) ($config['elasticache_serverless'] ?? false)) {
+            return true;
+        }
+
+        return self::looksLikeElastiCacheServerless($config);
+    }
+
+    /**
+     * Check whether the host or url resembles an ElastiCache Serverless endpoint.
+     *
+     * @param  array<string, mixed>  $config
+     * @return bool
+     */
+    private static function looksLikeElastiCacheServerless(array $config): bool
+    {
+        $host = $config['host'] ?? null;
+
+        if (is_string($host) && preg_match(self::ELASTICACHE_SERVERLESS_PATTERN, $host)) {
+            return true;
+        }
+
+        $url = $config['url'] ?? null;
+
+        if (!is_string($url) || $url === '') {
+            return false;
+        }
+
+        $parsed_host = parse_url($url, PHP_URL_HOST);
+
+        return is_string($parsed_host) && (bool) preg_match(self::ELASTICACHE_SERVERLESS_PATTERN, $parsed_host);
+    }
+
+    /**
+     * Apply sensible defaults and enforce non-negotiable constraints for
+     * ElastiCache Serverless connections.
+     *
+     * Non-negotiable: database forced to null, TLS forced on, timeouts
+     * enforced minimum 2000ms.
+     *
+     * Defaults (overridable): addresses auto-generated from host,
+     * request_timeout 3000ms, connection_timeout 3000ms,
+     * read_from PreferReplica.
+     *
+     * @param  array<string, mixed>  $config
+     * @return array<string, mixed>
+     */
+    private static function applyElastiCacheServerlessDefaults(array $config): array
+    {
+        // Non-negotiable: null out database (ElastiCache Serverless rejects SELECT)
+        $config['database'] = null;
+
+        // Non-negotiable: force TLS
+        $config['tls'] = true;
+
+        // Default addresses from host if not explicitly configured
+        if (!isset($config['addresses']) || !is_array($config['addresses']) || $config['addresses'] === []) {
+            $host = $config['host'] ?? self::DEFAULT_HOST;
+            $port = self::normalizePort($config['port'] ?? null);
+
+            $config['addresses'] = [
+                ['host' => $host, 'port' => $port],
+                ['host' => $host, 'port' => $port + 1],
+            ];
+        }
+
+        // Default read_from to PreferReplica if not set or invalid
+        if (ReadFrom::tryFromMixed($config['read_from'] ?? null) === null) {
+            $config['read_from'] = ReadFrom::PreferReplica->value;
+        }
+
+        // Default timeouts to 3000ms, enforce minimum 2000ms
+        $config['timeout']            = self::enforceMinTimeout($config['timeout'] ?? null, 3000, 2000);
+        $config['connection_timeout'] = self::enforceMinTimeout($config['connection_timeout'] ?? null, 3000, 2000);
+
+        return $config;
+    }
+
+    /**
+     * Resolve a timeout value with a default and enforce a minimum.
+     *
+     * @param  mixed  $value     Raw timeout value (seconds or milliseconds)
+     * @param  int    $defaultMs Default timeout in milliseconds
+     * @param  int    $minimumMs Minimum allowed timeout in milliseconds
+     * @return int
+     */
+    private static function enforceMinTimeout(mixed $value, int $defaultMs, int $minimumMs): int
+    {
+        $resolved = self::normalizeTimeout($value) ?? $defaultMs;
+
+        return max($resolved, $minimumMs);
     }
 
     /**

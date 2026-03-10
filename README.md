@@ -70,6 +70,74 @@ Example single-node Redis connection:
 ],
 ```
 
+## ElastiCache Serverless Compatibility
+
+AWS ElastiCache Serverless runs Valkey in cluster mode behind a proxy. `SELECT` is rejected with
+`ERR SELECT is not allowed in cluster mode`, even though the endpoint appears as a single node.
+
+Set `'elasticache_serverless' => true` in your connection config to apply sensible defaults: database is forced to null
+(no `SELECT`), TLS is enabled, timeouts default to 3000ms (minimum 2000ms), addresses are auto-generated from the
+`host` key, and `read_from` defaults to `PreferReplica`. All defaults except database and TLS can be overridden.
+
+The GLIDE Rust core defaults to a 250ms request timeout which may be too short for ElastiCache Serverless warm-up
+latency. If needed, set an appropriate `timeout` (in seconds, matching the phpredis convention) in the connection config:
+
+```php
+'default' => [
+    'host'    => env('REDIS_HOST', '127.0.0.1'),
+    'timeout' => 2.0, // seconds — converted to 2000ms for GLIDE
+],
+```
+
+### TLS Context
+
+Pass a TLS stream context for custom CA certificates or verification settings via the per-connection `context` key:
+
+```php
+'default' => [
+    'host'    => env('REDIS_HOST', '127.0.0.1'),
+    'port'    => (int) env('REDIS_PORT', 6379),
+    'tls'     => true,
+    'context' => [
+        'ssl' => [
+            'cafile'      => '/path/to/ca.crt',
+            'verify_peer' => true,
+        ],
+    ],
+],
+```
+
+Both array contexts (config-file-safe) and pre-built `stream_context_create()` resources are accepted.
+
+### Read Routing
+
+GLIDE can route read commands to replicas when `read_from` is configured. ElastiCache Serverless exposes port 6380 for
+read-only traffic; GLIDE discovers replicas automatically via the cluster topology.
+
+| Strategy | Value | Behavior |
+|---|---|---|
+| `primary` | 0 | All reads go to the primary (default) |
+| `prefer_replica` | 1 | Reads prefer replicas, fall back to primary |
+| `az_affinity` | 2 | Reads prefer replicas in the same AZ as `client_az` |
+| `az_affinity_replicas_and_primary` | 3 | Same-AZ affinity across replicas and primary |
+
+```php
+'default' => [
+    'host'      => env('REDIS_HOST', '127.0.0.1'),
+    'port'      => (int) env('REDIS_PORT', 6379),
+    'tls'       => true, // required for ElastiCache Serverless (see TLS Context above)
+    'read_from' => env('REDIS_READ_FROM', 'prefer_replica'),
+    'client_az' => env('REDIS_CLIENT_AZ'),
+],
+```
+
+Both string names (e.g. `'prefer_replica'`) and integer constants (e.g. `1`) are accepted for `read_from`.
+`client_az` is required when using `az_affinity` or `az_affinity_replicas_and_primary` strategies — omitting it will
+cause GLIDE to fall back to non-AZ-aware routing.
+
+**Note:** Security groups must allow both port 6379 (read-write) and port 6380 (read-only) when using read routing
+with ElastiCache Serverless.
+
 ## Supported Config Mapping
 
 The connector normalizes Laravel config into GLIDE connect arguments:
@@ -81,6 +149,10 @@ The connector normalizes Laravel config into GLIDE connect arguments:
 - `iam` block -> IAM credentials + `use_tls=true`
 - `database` -> `database_id`
 - `name` -> `client_name`
+- `timeout` -> `request_timeout` (seconds auto-converted to milliseconds, matching the phpredis convention)
+- `context` -> `context` (TLS stream context array or resource)
+- `read_from` -> `read_from` (string strategy name or integer constant)
+- `client_az` -> `client_az` (AZ identifier for AZ-affinity read routing)
 
 Cluster-style configs are normalized into seed `addresses` using `connectToCluster()`.
 
